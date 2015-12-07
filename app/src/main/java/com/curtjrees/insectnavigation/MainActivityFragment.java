@@ -1,13 +1,23 @@
 package com.curtjrees.insectnavigation;
 
+import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.net.Uri;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.support.design.widget.FloatingActionButton;
 import android.support.v4.app.Fragment;
 import android.os.Bundle;
+import android.support.v4.app.FragmentManager;
+import android.support.v4.app.FragmentTransaction;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.widget.Button;
 import android.widget.TextView;
 
 import org.opencv.android.BaseLoaderCallback;
@@ -17,121 +27,125 @@ import org.opencv.android.OpenCVLoader;
 import org.opencv.android.Utils;
 import org.opencv.core.Core;
 import org.opencv.core.Mat;
+import org.opencv.core.Scalar;
 import org.opencv.imgcodecs.Imgcodecs;
 
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
 
 /**
  * A placeholder fragment containing a simple view.
  */
-public class MainActivityFragment extends Fragment implements CameraBridgeViewBase.CvCameraViewListener2 {
+public class MainActivityFragment extends Fragment {
 
-    private CameraBridgeViewBase mOpenCvCameraView;
-    private TextView error_label;
-    int count = 0;
+    private static final int CAPTURE_IMAGE_ACTIVITY_REQUEST_CODE = 100;
+    public static final int MEDIA_TYPE_IMAGE = 1;
+    public static final int MEDIA_TYPE_VIDEO = 2;
 
-    public MainActivityFragment() {
-    }
+    Uri fileUri;
 
-    static {
-        // If you use opencv 2.4, System.loadLibrary("opencv_java")
-        System.loadLibrary("opencv_java3");
-    }
-
-    private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(getActivity()) {
-        @Override
-        public void onManagerConnected(int status) {
-            switch (status) {
-                case LoaderCallbackInterface.SUCCESS:
-                    mOpenCvCameraView.enableView();
-                    break;
-
-                default:
-                    super.onManagerConnected(status);
-                    break;
-            }
-        }
-    };
-
-    @Override
-    public void onResume() {
-        super.onResume();
-        OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, getContext(), mLoaderCallback);
-    }
+    public MainActivityFragment() {}
 
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
 
         View view = inflater.inflate(R.layout.fragment_main, container, false);
 
-        error_label = (TextView) view.findViewById(R.id.error_label);
 
-        FloatingActionButton fab = (FloatingActionButton) view.findViewById(R.id.fab);
-        fab.setOnClickListener(new View.OnClickListener() {
+        Button btn = (Button) view.findViewById(R.id.button);
+        btn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-
+                captureImage();
             }
         });
-
-        getActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        mOpenCvCameraView = (CameraBridgeViewBase) view.findViewById(R.id.HelloOpenCvView);
-        mOpenCvCameraView.setVisibility(SurfaceView.VISIBLE);
-        mOpenCvCameraView.setCvCameraViewListener(this);
 
         return view;
     }
 
+    private void captureImage() {
+        Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        fileUri = getOutputMediaFileUri(MEDIA_TYPE_IMAGE); // create a file to save the image
+        intent.putExtra(MediaStore.EXTRA_OUTPUT, fileUri); // set the image file name
+        startActivityForResult(intent, CAPTURE_IMAGE_ACTIVITY_REQUEST_CODE);
+    }
+
     @Override
-    public void onPause() {
-        super.onPause();
-        if (mOpenCvCameraView != null)
-            mOpenCvCameraView.disableView();
-    }
+    public void onActivityResult(int requestCode, int resultCode, Intent intent) {
+        switch (requestCode) {
+            case CAPTURE_IMAGE_ACTIVITY_REQUEST_CODE:
+                switch (resultCode) {
+                    case 0:
+                        Log.i("CAPTURE", "Cancelled by User");
+                        break;
+                    case -1:
 
-    public void onDestroy() {
-        super.onDestroy();
-        if (mOpenCvCameraView != null)
-            mOpenCvCameraView.disableView();
-    }
+                        InputStream image_stream = null;
+                        try {
+                            image_stream = getActivity().getContentResolver().openInputStream(fileUri);
+                        } catch (FileNotFoundException e) {
+                            e.printStackTrace();
+                        }
 
-    public void onCameraViewStarted(int width, int height) {
-    }
+                        MainActivity.bitmap = BitmapFactory.decodeStream(image_stream);
 
-    public void onCameraViewStopped() {
-    }
 
-    public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
+                        RouteFollowFragment newFragment = new RouteFollowFragment();
+                        FragmentTransaction transaction = getFragmentManager().beginTransaction();
+                        transaction.replace(R.id.fragment_container, newFragment);
+                        // transaction.addToBackStack(null);
+                        transaction.commit();
 
-        Mat currentImage = inputFrame.gray();
-
-        Mat goalImage = null;
-        try {
-            goalImage = Utils.loadResource(getActivity().getApplicationContext(), R.drawable.goal, Imgcodecs.CV_LOAD_IMAGE_GRAYSCALE);
-        } catch (IOException e) {
-            e.printStackTrace();
+                }
         }
-
-//        sq_error = abs(img_ref - img_current) .^ 2;
-//        rms_error = sqrt(sum(sq_error(:)) / numel(img_ref));
+    }
 
 
-        if((goalImage != null) & (currentImage != null)) {
-            if((currentImage.height() == goalImage.height()) & (currentImage.width() == goalImage.width())) {
-                Mat squareError = Mat.zeros(currentImage.width(), currentImage.height(), currentImage.type());
-                Core.absdiff(currentImage, goalImage, squareError);
+    /** Create a file Uri for saving an image or video */
+    private static Uri getOutputMediaFileUri(int type){
+        return Uri.fromFile(getOutputMediaFile(type));
+    }
 
-                getActivity().runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        error_label.setText("Frame " + count++);
-                    }
-                });
+    /** Create a File for saving an image or video */
+    private static File getOutputMediaFile(int type){
+        // To be safe, you should check that the SDCard is mounted
+        // using Environment.getExternalStorageState() before doing this.
+
+        File mediaStorageDir = new File(Environment.getExternalStoragePublicDirectory(
+                Environment.DIRECTORY_PICTURES), "MyCameraApp");
+        // This location works best if you want the created images to be shared
+        // between applications and persist after your app has been uninstalled.
+
+        // Create the storage directory if it does not exist
+        if (! mediaStorageDir.exists()){
+            if (! mediaStorageDir.mkdirs()){
+                Log.d("MyCameraApp", "failed to create directory");
+                return null;
             }
         }
 
-        return inputFrame.rgba();
+        // Create a media file name
+        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+        File mediaFile;
+        if (type == MEDIA_TYPE_IMAGE){
+            mediaFile = new File(mediaStorageDir.getPath() + File.separator +
+                    "IMG_"+ timeStamp + ".jpg");
+        } else if(type == MEDIA_TYPE_VIDEO) {
+            mediaFile = new File(mediaStorageDir.getPath() + File.separator +
+                    "VID_"+ timeStamp + ".mp4");
+        } else {
+            return null;
+        }
+
+        return mediaFile;
     }
+
+
+
 
 }
